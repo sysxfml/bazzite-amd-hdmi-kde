@@ -11,7 +11,7 @@ The kernel is built from my fork of agd5f/amd-staging-drm-next here:
 ](https://gitlab.freedesktop.org/dyllan500/linux/-/tree/harry-frl-v3-hdmi-vrr)
 Upstream source of the FRL patches:
 https://lore.kernel.org/amd-gfx/20260508182808.520863-1-harry.wentland@amd.com/T/#t
-This fork contains my claude assisted patch for getting VRR support enabled.
+This fork also contains the work down by Lawstorant https://github.com/Lawstorant/linux/tree/hdmi-7.1 adding VRR support
 
 ## What this image is *not*
 
