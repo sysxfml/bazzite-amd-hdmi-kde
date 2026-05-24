@@ -108,4 +108,10 @@ done
 
 rm -- "${temp_conf_file}"
 
+# Bake in the HDMI 2.1 FRL enable karg. Without this, Harry Wentland's
+# FRL series stays gated off (DC_FRL_MASK / dcfeaturemask bit 0x400) and
+# HDMI 2.1 sinks fall back to TMDS. bootc applies kargs from this
+# directory on every deployment of the image.
+install -D -m 0644 /ctx/40-amdgpu-frl.toml /usr/lib/bootc/kargs.d/40-amdgpu-frl.toml
+
 ostree container commit

@@ -1,0 +1,10 @@
+# Enable HDMI 2.1 FRL on AMD GPUs.
+#
+# Harry Wentland's HDMI FRL series (v6+) gates FRL behind the DC feature
+# mask bit 0x400 (DC_FRL_MASK). Without this kernel argument, FRL stays
+# disabled and HDMI 2.1 sinks fall back to TMDS - capping at 4K60 8bpc
+# RGB or 4K60 10bpc YCbCr 4:2:0.
+#
+# Applies on every deployment of this bootc image; survives upgrades.
+
+kargs = ["amdgpu.dcfeaturemask=0x400"]
