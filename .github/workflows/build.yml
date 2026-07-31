@@ -91,6 +91,13 @@ jobs:
           sep-tags: " "
           sep-annotations: " "
 
+      - name: Download Kernel RPMs from Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p build_files/kernel-rpms
+          gh release download latest-kernel --repo ${{ github.repository }} --dir build_files/kernel-rpms --pattern "*.rpm"
+
       - name: Build Image
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2
