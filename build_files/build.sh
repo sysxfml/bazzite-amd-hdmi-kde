@@ -3,7 +3,6 @@ set -ouex pipefail
 
 GITHUB_REPO="sysxfml/bazzite-amd-hdmi-kde"
 RELEASE_TAG="latest-kernel"
-API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${RELEASE_TAG}"
 
 pushd /usr/lib/kernel/install.d
 mv 05-rpmostree.install 05-rpmostree.install.bak
@@ -31,15 +30,8 @@ dnf5 -y remove --no-autoremove ${pkgs[@]} || true
 
 rm -rf /usr/lib/modules/*
 
-mkdir -p /tmp/kernel-rpms
-pushd /tmp/kernel-rpms
-
-curl -s "${API_URL}" | grep "browser_download_url.*rpm" | cut -d '"' -f 4 | xargs -n 1 curl -L -O
-
-dnf5 --setopt=disable_excludes=* install -y ./*.rpm
-
-popd
-rm -rf /tmp/kernel-rpms
+echo "Installing custom kernel RPMs from local /ctx mount..."
+dnf5 --setopt=disable_excludes=* install -y /ctx/kernel-rpms/*.rpm
 
 pushd /usr/lib/kernel/install.d
 mv -f 05-rpmostree.install.bak 05-rpmostree.install
