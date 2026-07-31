@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ouex pipefail
 
-GITHUB_REPO="sysxfml/bazzite-amd-hdmi-kde-new"
+GITHUB_REPO="sysxfml/bazzite-amd-hdmi-kde"
 RELEASE_TAG="latest-kernel"
 API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${RELEASE_TAG}"
 
