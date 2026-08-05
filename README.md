@@ -10,9 +10,13 @@ This configuration has only been tested and confirmed working on an AMD Radeon R
 
 How to use:
 Switch your current Bazzite installation to the custom image via the terminal:
-```sudo bootc switch ghcr.io/sysxfml/bazzite-amd-hdmi-kde:latest```
+```
+sudo bootc switch ghcr.io/sysxfml/bazzite-amd-hdmi-kde:latest
+```
 then
-```systemctl reboot```
+```
+systemctl reboot
+```
 
 ---
 
