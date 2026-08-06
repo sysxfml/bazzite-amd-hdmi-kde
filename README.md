@@ -8,7 +8,8 @@ Built upon the following projects, the official Bazzite image (testing branch) k
 
 This configuration has only been tested and confirmed working on an AMD Radeon RX 9070 xt GPU connected to an LG C2 TV.
 
-How to use:
+### How to use:
+
 Switch your current Bazzite installation to the custom image via the terminal:
 ```
 sudo bootc switch ghcr.io/sysxfml/bazzite-amd-hdmi-kde:latest
