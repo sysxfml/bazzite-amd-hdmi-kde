@@ -44,14 +44,11 @@ jobs:
             rpm -Uvh /work/srpms/kernel-*.src.rpm
             
             echo 'Downloading Harry Wentland FRL Patch...'
-            # 从 freedesktop patchwork 直接拉取 Harry 提交的 FRL 补丁合集 (mbox 格式完美兼容 rpmbuild)
             wget -O ~/rpmbuild/SOURCES/frl.patch https://patchwork.freedesktop.org/series/132486/mbox/
             
             echo 'Modifying SPEC file...'
             cd ~/rpmbuild/SPECS/
-            # 在 SPEC 文件的 Name 声明后，动态注入我们的 FRL 补丁
             sed -i '/^Name:.*/a Patch9999: frl.patch' kernel.spec
-            # 修改 Release 标签，打上 frl 标记防止冲突
             sed -i 's/%define buildid .*/%define buildid .frl1/' kernel.spec
             
             echo 'Installing SRPM dependencies...'
