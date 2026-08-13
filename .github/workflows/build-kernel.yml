@@ -36,6 +36,9 @@ jobs:
         run: |
           mkdir -p final-rpms
           sudo podman run --rm -v ${{ github.workspace }}:/work -w /work registry.fedoraproject.org/fedora:44 bash -c "
+            set -e
+            set -o pipefail
+            
             echo 'Installing build dependencies...'
             dnf install -y rpmdevtools rpm-build yum-utils bc bison flex elfutils-libelf-devel openssl-devel gcc gcc-c++ make zstd dwarves wget
             
@@ -54,14 +57,18 @@ jobs:
             echo 'Installing SRPM dependencies...'
             dnf builddep -y kernel.spec
             
-            echo 'Building binary RPMs (This will take 1-2 hours)...'
-            rpmbuild -bb kernel.spec
+            echo 'Building binary RPMs...'
+            if ! rpmbuild -bb kernel.spec
+            then
+              echo '=== RPMBUILD FAILED ==='
+              exit 1
+            fi
             
             echo 'Copying finished RPMs to workspace...'
-            find ~/rpmbuild/RPMS/ -name '*.rpm' -exec cp {} /work/final-rpms/ \;
+            find ~/rpmbuild/RPMS/ -name '*.rpm' -exec cp {} /work/final-rpms/ +
           "
-          rm -f final-rpms/*debuginfo*.rpm
-          rm -f final-rpms/*debugsource*.rpm
+          rm -f final-rpms/*debuginfo*.rpm || true
+          rm -f final-rpms/*debugsource*.rpm || true
           ls -lh final-rpms/
 
       - name: Clean up old release
