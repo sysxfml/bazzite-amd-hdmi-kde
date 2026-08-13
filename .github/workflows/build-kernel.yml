@@ -40,14 +40,29 @@ jobs:
             set -o pipefail
             
             echo 'Installing build dependencies...'
-            dnf install -y rpmdevtools rpm-build yum-utils bc bison flex elfutils-libelf-devel openssl-devel gcc gcc-c++ make zstd dwarves wget
+            dnf install -y rpmdevtools rpm-build yum-utils bc bison flex elfutils-libelf-devel openssl-devel gcc gcc-c++ make zstd dwarves wget curl
             
             echo 'Setting up rpmbuild tree...'
             rpmdev-setuptree
             rpm -Uvh /work/srpms/kernel-*.src.rpm
             
-            echo 'Downloading Harry Wentland FRL Patch...'
-            wget -O ~/rpmbuild/SOURCES/frl.patch https://patchwork.freedesktop.org/series/132486/mbox/
+            echo 'Downloading FRL Patch (with Fallback)...'
+            # 首选方案：尝试拉取 Bazzite 社区常用的稳定版 FRL 补丁
+            if ! wget -O ~/rpmbuild/SOURCES/frl.patch https://raw.githubusercontent.com/ublue-os/bazzite/main/spec_files/kernel/patches/0001-drm-amd-display-Add-FRL-support.patch
+            then
+               echo 'Primary URL failed, attempting fallback...'
+               # 备选方案：通过 GitHub API 从 Lawstorant 的对比树中强行抓取包含 FRL 的 diff，并作为 patch
+               wget -O ~/rpmbuild/SOURCES/frl.patch https://github.com/torvalds/linux/compare/master...Lawstorant:linux:hdmi-7.2.patch
+            fi
+            
+            # 检查下载的文件是否为空或是否包含 HTML 错误页
+            if [ ! -s ~/rpmbuild/SOURCES/frl.patch ] || grep -qi '<html' ~/rpmbuild/SOURCES/frl.patch
+            then
+              echo '=== FATAL: FAILED TO DOWNLOAD A VALID FRL PATCH ==='
+              exit 1
+            fi
+            
+            echo 'Valid FRL patch downloaded successfully.'
             
             echo 'Modifying SPEC file...'
             cd ~/rpmbuild/SPECS/
