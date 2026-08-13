@@ -1,4 +1,4 @@
-name: Build Custom Kernel
+name: Build Custom OGC+FRL Kernel
 on:
   workflow_dispatch:
 
@@ -7,12 +7,15 @@ permissions:
 
 jobs:
   build-kernel:
-    name: Compile Patched Linux Kernel
+    name: Compile Patched OGC Kernel
     runs-on: ubuntu-24.04
 
     steps:
       - name: Maximize build space
         uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Create Massive Swap Space (Prevent OOM)
         run: |
@@ -22,49 +25,47 @@ jobs:
           sudo swapon /swapfile
           free -h
 
-      - name: Install build dependencies
+      - name: Extract OGC SRPM from Bazzite testing image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison build-essential dwarves flex git libelf-dev libssl-dev libncurses-dev rsync zstd rpm wget cpio kmod
+          mkdir -p srpms
+          echo "Extracting SRPM from ghcr.io/ublue-os/bazzite-deck:testing..."
+          sudo podman run --rm -v $(pwd)/srpms:/output ghcr.io/ublue-os/bazzite-deck:testing bash -c "dnf5 install -y dnf-plugins-core && dnf5 download --source kernel --destdir /output"
+          ls -lh srpms/
 
-      - name: Clone bleeding-edge kernel tree
+      - name: Patch and Compile SRPM in Fedora Container
         run: |
-          git clone --depth 1 https://github.com/torvalds/linux.git linux-src
-
-      - name: Apply HDMI 7.2 Patch
-        run: |
-          cd linux-src
-          wget -O vrr.patch https://github.com/torvalds/linux/compare/master...Lawstorant:linux:hdmi-7.2.patch
-          git apply vrr.patch
-
-      - name: Configure Kernel for Bazzite
-        run: |
-          cd linux-src
-          podman pull ghcr.io/ublue-os/bazzite-deck:testing
-          podman create --name bazzite_temp ghcr.io/ublue-os/bazzite-deck:testing
-          podman cp bazzite_temp:/usr/lib/modules ./bazzite-modules
-          podman rm bazzite_temp
-          CONFIG_FILE=$(find ./bazzite-modules -maxdepth 2 -name "config" -type f | sort -V | tail -n 1)
-          cp "${CONFIG_FILE}" .config
-          make olddefconfig
-          scripts/config --disable DEBUG_INFO
-          scripts/config --disable DEBUG_INFO_BTF
-          scripts/config --disable DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT
-          scripts/config --enable DEBUG_INFO_NONE
-          scripts/config --disable MODULE_SIG
-          scripts/config --set-str SYSTEM_TRUSTED_KEYS ""
-          scripts/config --set-str SYSTEM_REVOCATION_KEYS ""
-          make olddefconfig
-
-      - name: Compile RPM packages
-        run: |
-          cd linux-src
-          if ! make -j$(nproc) binrpm-pkg INSTALL_MOD_STRIP=1 > build.log 2>&1
-          then
-            echo "=== FATAL COMPILATION ERROR ==="
-            tail -n 200 build.log
-            exit 1
-          fi
+          mkdir -p final-rpms
+          sudo podman run --rm -v ${{ github.workspace }}:/work -w /work registry.fedoraproject.org/fedora:44 bash -c "
+            echo 'Installing build dependencies...'
+            dnf install -y rpmdevtools rpm-build yum-utils bc bison flex elfutils-libelf-devel openssl-devel gcc gcc-c++ make zstd dwarves wget
+            
+            echo 'Setting up rpmbuild tree...'
+            rpmdev-setuptree
+            rpm -Uvh /work/srpms/kernel-*.src.rpm
+            
+            echo 'Downloading Harry Wentland FRL Patch...'
+            # 从 freedesktop patchwork 直接拉取 Harry 提交的 FRL 补丁合集 (mbox 格式完美兼容 rpmbuild)
+            wget -O ~/rpmbuild/SOURCES/frl.patch https://patchwork.freedesktop.org/series/132486/mbox/
+            
+            echo 'Modifying SPEC file...'
+            cd ~/rpmbuild/SPECS/
+            # 在 SPEC 文件的 Name 声明后，动态注入我们的 FRL 补丁
+            sed -i '/^Name:.*/a Patch9999: frl.patch' kernel.spec
+            # 修改 Release 标签，打上 frl 标记防止冲突
+            sed -i 's/%define buildid .*/%define buildid .frl1/' kernel.spec
+            
+            echo 'Installing SRPM dependencies...'
+            dnf builddep -y kernel.spec
+            
+            echo 'Building binary RPMs (This will take 1-2 hours)...'
+            rpmbuild -bb kernel.spec
+            
+            echo 'Copying finished RPMs to workspace...'
+            find ~/rpmbuild/RPMS/ -name '*.rpm' -exec cp {} /work/final-rpms/ \;
+          "
+          rm -f final-rpms/*debuginfo*.rpm
+          rm -f final-rpms/*debugsource*.rpm
+          ls -lh final-rpms/
 
       - name: Clean up old release
         env:
@@ -74,18 +75,9 @@ jobs:
           gh release delete latest-kernel --repo ${{ github.repository }} --yes
           gh tag delete latest-kernel --repo ${{ github.repository }} --yes
 
-      - name: Gather compiled RPMs
-        run: |
-          mkdir -p final-rpms
-          find /home/runner/rpmbuild -name "*.rpm" -type f -exec cp -t final-rpms/ {} + || true
-          find ./linux-src -name "*.rpm" -type f -exec cp -t final-rpms/ {} + || true
-          rm -f final-rpms/*debuginfo*.rpm
-          rm -f final-rpms/*debugsource*.rpm
-          ls -lh final-rpms/
-
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-kernel
-          name: "Next-Gen Patched Kernel"
+          name: "Bazzite OGC Kernel + FRL"
           files: final-rpms/*.rpm
