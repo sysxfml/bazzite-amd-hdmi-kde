@@ -25,63 +25,105 @@ jobs:
           sudo swapon /swapfile
           free -h
 
-      - name: Extract OGC SRPM from Bazzite testing image
+      - name: Extract Exact OGC SRPM from Bazzite
         run: |
           mkdir -p srpms
+          cat << 'EOF' > extract_srpm.sh
+          #!/bin/bash
+          set -e
+          dnf5 install -y dnf-plugins-core
+          
+          sed -i 's/enabled=0/enabled=1/g' /etc/yum.repos.d/*.repo || true
+          
+          KVER=$(rpm -q --qf "%{VERSION}-%{RELEASE}\n" kernel | head -n 1)
+          echo "Targeting Exact Bazzite Kernel: ${KVER}"
+          
+          dnf5 download --source kernel-${KVER} --destdir /output
+          EOF
+          
+          chmod +x extract_srpm.sh
           echo "Extracting SRPM from ghcr.io/ublue-os/bazzite-deck:testing..."
-          sudo podman run --rm -v $(pwd)/srpms:/output ghcr.io/ublue-os/bazzite-deck:testing bash -c "dnf5 install -y dnf-plugins-core && dnf5 download --source kernel --destdir /output"
+          sudo podman run --rm -v $(pwd)/srpms:/output -v $(pwd)/extract_srpm.sh:/extract_srpm.sh ghcr.io/ublue-os/bazzite-deck:testing /extract_srpm.sh
           ls -lh srpms/
 
       - name: Patch and Compile SRPM in Fedora Container
         run: |
           mkdir -p final-rpms
-          sudo podman run --rm -v ${{ github.workspace }}:/work -w /work registry.fedoraproject.org/fedora:44 bash -c "
-            set -e
-            set -o pipefail
-            
-            echo 'Installing build dependencies...'
-            dnf install -y rpmdevtools rpm-build yum-utils bc bison flex elfutils-libelf-devel openssl-devel gcc gcc-c++ make zstd dwarves wget curl
-            
-            echo 'Setting up rpmbuild tree...'
-            rpmdev-setuptree
-            rpm -Uvh /work/srpms/kernel-*.src.rpm
-            
-            echo 'Downloading FRL Patch (with Fallback)...'
-            # 首选方案：尝试拉取 Bazzite 社区常用的稳定版 FRL 补丁
-            if ! wget -O ~/rpmbuild/SOURCES/frl.patch https://raw.githubusercontent.com/ublue-os/bazzite/main/spec_files/kernel/patches/0001-drm-amd-display-Add-FRL-support.patch
-            then
-               echo 'Primary URL failed, attempting fallback...'
-               # 备选方案：通过 GitHub API 从 Lawstorant 的对比树中强行抓取包含 FRL 的 diff，并作为 patch
-               wget -O ~/rpmbuild/SOURCES/frl.patch https://github.com/torvalds/linux/compare/master...Lawstorant:linux:hdmi-7.2.patch
-            fi
-            
-            # 检查下载的文件是否为空或是否包含 HTML 错误页
-            if [ ! -s ~/rpmbuild/SOURCES/frl.patch ] || grep -qi '<html' ~/rpmbuild/SOURCES/frl.patch
-            then
-              echo '=== FATAL: FAILED TO DOWNLOAD A VALID FRL PATCH ==='
-              exit 1
-            fi
-            
-            echo 'Valid FRL patch downloaded successfully.'
-            
-            echo 'Modifying SPEC file...'
-            cd ~/rpmbuild/SPECS/
-            sed -i '/^Name:.*/a Patch9999: frl.patch' kernel.spec
-            sed -i 's/%define buildid .*/%define buildid .frl1/' kernel.spec
-            
-            echo 'Installing SRPM dependencies...'
-            dnf builddep -y kernel.spec
-            
-            echo 'Building binary RPMs...'
-            if ! rpmbuild -bb kernel.spec
-            then
-              echo '=== RPMBUILD FAILED ==='
-              exit 1
-            fi
-            
-            echo 'Copying finished RPMs to workspace...'
-            find ~/rpmbuild/RPMS/ -name '*.rpm' -exec cp {} /work/final-rpms/ +
-          "
+          cat << 'EOF' > build_script.sh
+          #!/bin/bash
+          set -e
+          set -o pipefail
+          
+          echo 'Installing build dependencies...'
+          dnf install -y rpmdevtools rpm-build yum-utils bc bison flex elfutils-libelf-devel openssl-devel gcc gcc-c++ make zstd dwarves wget curl
+          
+          echo 'Setting up rpmbuild tree...'
+          rpmdev-setuptree
+          rpm -Uvh /work/srpms/kernel-*.src.rpm
+          
+          echo 'Downloading FRL Patch (with Fallback)...'
+          if ! wget -O ~/rpmbuild/SOURCES/frl.patch https://raw.githubusercontent.com/ublue-os/bazzite/main/spec_files/kernel/patches/0001-drm-amd-display-Add-FRL-support.patch; then
+             wget -O ~/rpmbuild/SOURCES/frl.patch https://github.com/torvalds/linux/compare/master...Lawstorant:linux:hdmi-7.2.patch
+          fi
+          
+          if [ ! -s ~/rpmbuild/SOURCES/frl.patch ] || grep -qi '<html' ~/rpmbuild/SOURCES/frl.patch; then
+            echo '=== FATAL: FAILED TO DOWNLOAD A VALID FRL PATCH ==='
+            exit 1
+          fi
+          
+          echo 'Modifying SPEC file...'
+          cd ~/rpmbuild/SPECS/
+          
+          LAST_PATCH_LINE=$(grep -n '^Patch[0-9]*:' kernel.spec | tail -1 | cut -d: -f1)
+          if [ -n "$LAST_PATCH_LINE" ]; then
+            sed -i "${LAST_PATCH_LINE}a Patch9999: frl.patch" kernel.spec
+          else
+            sed -i '/^Source[0-9]*:/a Patch9999: frl.patch' kernel.spec
+          fi
+          
+          if grep -q '%autosetup' kernel.spec && ! grep -q '%autosetup.*-N' kernel.spec; then
+              echo 'Using %autosetup, patch will be auto-applied'
+          else
+              SETUP_LINE=$(grep -n '^%setup' kernel.spec | tail -1 | cut -d: -f1)
+              sed -i "${SETUP_LINE}a %patch -P 9999 -p1" kernel.spec
+          fi
+          
+          if grep -E -q '^(%define|%global)\s+buildid' kernel.spec; then
+              sed -i -E 's/^(%define|%global)\s+buildid.*/\1 buildid .frl1/' kernel.spec
+          else
+              sed -i '/^Name:.*/a %define buildid .frl1' kernel.spec
+          fi
+          
+          echo 'Installing SRPM dependencies...'
+          dnf builddep -y kernel.spec
+          
+          echo 'Testing patch application (prep only)...'
+          if ! rpmbuild -bp kernel.spec 2>&1 | tee /work/prep.log; then
+            echo '=== PREP/PATCH FAILED ==='
+            tail -n 100 /work/prep.log
+            exit 1
+          fi
+          
+          if ! grep -ri 'frl' ~/rpmbuild/BUILD/kernel-*/drivers/gpu/drm/amd/display/ > /dev/null; then
+            echo 'WARNING: FRL patch might not be applied properly! No FRL references found.'
+          else
+            echo 'SUCCESS: FRL code verified in the source tree!'
+          fi
+          
+          echo 'Building binary RPMs (This will take a while)...'
+          if ! rpmbuild -bb kernel.spec 2>&1 | tee /work/rpmbuild.log; then
+            echo '=== RPMBUILD FAILED ==='
+            tail -n 200 /work/rpmbuild.log
+            exit 1
+          fi
+          
+          echo 'Copying finished RPMs to workspace...'
+          cp ~/rpmbuild/RPMS/*/*.rpm /work/final-rpms/ 2>/dev/null || true
+          EOF
+          
+          chmod +x build_script.sh
+          sudo podman run --rm -v ${{ github.workspace }}:/work -w /work registry.fedoraproject.org/fedora:44 /work/build_script.sh
+          
           rm -f final-rpms/*debuginfo*.rpm || true
           rm -f final-rpms/*debugsource*.rpm || true
           ls -lh final-rpms/
