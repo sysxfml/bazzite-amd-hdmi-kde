@@ -1,3 +1,6 @@
+> [!CAUTION]
+> The official Bazzite image has been updated to the Linux 7.2 kernel starting from version **44.20260815** and newer. Since this kernel natively supports HDMI 2.1 (FRL) and VRR, this project is now **obsolete and deprecated**. Please do not use it anymore.
+
 # bazzite-amd-hdmi-kde
 
 Built upon the following projects, the official Bazzite image (testing branch) kernel has been replaced with Linux 7.2. This brings full native HDMI 2.1 and VRR support to the system.
